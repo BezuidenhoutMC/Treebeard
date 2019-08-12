@@ -9,7 +9,6 @@
 # Candidate files are assumed to consist of 4 columns: DM; SNR; Time; Boxcar Width
 
 #-----------------------------------------------------------------------
-# # Import
 
 import numpy as np
 import math
@@ -28,38 +27,25 @@ import sys
 from matplotlib.cm import ScalarMappable
 np.set_printoptions(threshold=np.nan)
 
-
 #--------------------------------------------------------------------------
-# Reads .dat files output from AstroAccelerate
+# Reads .spccl files output from AstroAccelerate
 def read_sps(file,dmrange):
 	sps = np.genfromtxt(file,delimiter=',')
-	try:
-		sps = sps[sps[:,0]>=dmrange[0]]	
-		sps = sps[sps[:,0]<=dmrange[1]]	
-	except:
-		print("NOTE: There's only one candidate in this file. Cannot do anything with it.")
+	sps = sps[sps[:,0]>=dmrange[0]]	
+	sps = sps[sps[:,0]<=dmrange[1]]	
 	
 	numcands=len(sps)
 	print("Number of candidates between DM limits: "+str(numcands))
-	time_col=2
-	dm_col=0
-	return sps,time_col,dm_col,numcands
 
+	return sps,numcands
 
-#--------------------------------------------------------------------------
-# Plot singlepulses DM vs Time
-
-def plot_sps(sps,t_col,dm_col):
-    plt.figure(figsize=(10, 8))
-    ax = plt.gca()
-    plt.scatter(sps[:,t_col],sps[:,dm_col])
-#     ax.set_yscale("log")
-    plt.draw
 
 #---------------------------------------------------------------------------
 # Cluster singlepulse candidates in time
 
 def time_clust(sps,t,m,dist,chunks):
+    #print(len(sps))
+    
     if chunks > 1:
 	for  c in range(1,chunks+1):
 	   print("	Clustering chunk #"+str(c))
@@ -135,17 +121,14 @@ def flag_rfi(sps, all_clust,dm_thresh,clust_size_thresh,width_thresh):
             all_clust[rfi_flag] = 0
         
         else:
-            #print(sps[np.nonzero(all_clust==i)][:][1])   
 	    #LOW DM
             if max(dms) < dm_thresh:
-#                 print("Flagged as RFI")
                 rfi_flag = np.nonzero(all_clust==i)[0]
                 all_clust[rfi_flag] = 0
 	    #WIDE
 	    elif max(widths) > width_thresh: 
 		rfi_flag = np.nonzero(all_clust==i)[0]
                 all_clust[rfi_flag] = 0
-	    #print(sps[np.nonzero(all_clust==i)][0][3])
         
     return all_clust
 
@@ -153,17 +136,20 @@ def flag_rfi(sps, all_clust,dm_thresh,clust_size_thresh,width_thresh):
 # Plot clusters (DM vs Time) with different colours for different clusters
 
 
-def plot_clust2(sps,cl,t,dm,annotate,yplotrange,outfile):  #(singlepulses, clusters, time column, DM column)
-    plt.figure(figsize=(10, 8))
+def plot_clust2(sps,cl,t,dm,annotate,yplotrange,outfile,num_chunks):  #(singlepulses, clusters, time column, DM column,options...)
+    #print(len(sps))
+   # print(len(cl))
+    plt.figure(figsize=(23, 16))
     ax = plt.gca()
 
-    plt.title('SP Clusters')
+    plt.title(outfile+' Clusters')
     plt.xlabel('Time')
     plt.ylabel('DM')
-	
+
     if yplotrange!=[]:
         ax.set_ylim(yplotrange)
 
+    print("Creating cluster plot...")
     for i in range(min(cl),max(cl)+1):
 	q = np.nonzero(cl==i)[0]
 	if i==0:
@@ -173,11 +159,41 @@ def plot_clust2(sps,cl,t,dm,annotate,yplotrange,outfile):  #(singlepulses, clust
         if len(q) !=0 and annotate:
             ax.annotate(str(i),(sps[q][0,t],sps[q][0,dm]))
 
-
-
-
     plt.savefig("Clusters_"+outfile+".png")
-    plt.draw()
+
+    if num_chunks != 1:
+        time_chunk_size=math.ceil((max(sps[:,t])-min(sps[:,t]))/num_chunks)
+    	for n in range (1,num_chunks+1):
+    	    print("Saving plot chunk "+str(n)+"...")
+	    plt.figure(n+1,figsize=(23,16))
+       	    ax2 = plt.gca()
+	    ax2.set_xlabel("Time (s)")
+	    ax2.set_ylabel("DM")
+       	    plt.title(outfile+' (Time Chunk '+str(n)+")")
+	    chunk_where = np.where(np.logical_and(sps[:,t]> (n-1)*time_chunk_size, sps[:,t]<n*time_chunk_size))
+            sps_chunk = sps[chunk_where]
+	    cl_chunk = cl[chunk_where]
+
+    	    for i in range(min(cl),max(cl)+1):
+                q = np.nonzero(cl_chunk==i)[0]		
+		if i==0:
+	    		plt.scatter(sps_chunk[q][:,t],sps_chunk[q][:,dm],color="gray",marker='*',s=1)
+		else:
+	    		points = plt.scatter(sps_chunk[q][:,t],sps_chunk[q][:,dm],s=15)
+        	if len(q) !=0 and annotate:
+            		ax.annotate(str(i),(sps_chunk[q][0,t],sps_chunk[q][0,dm]))
+
+        	#for i in range(min(cl_chunk),max(cl_chunk)+1):
+            	#    q = np.nonzero(cl_chunk==i)[0]
+	    	#    plt.scatter(sps_chunk[q][:,t],sps_chunk[q][:,dm],color="gray",marker='*',s=1)
+	    plt.savefig("Clusters_"+outfile+"_timechunk"+str(n)+".png")
+			#plt.close(n)
+	
+	#if i==0:
+	#    plt.scatter(sps[q][:,t],sps[q][:,dm],color="gray",marker='*',s=1)
+	#else:
+	#    points = plt.scatter(sps[q][:,t],sps[q][:,dm],s=15)
+	 
 
 
 
@@ -318,7 +334,6 @@ def rank_groups(sps,groups,plot_sps,outfile):
 		cbar = plt.colorbar(sc)
 		cbar.set_label('Pulse Width')
 		plt.text(min(dms),max(sigmas),"Cluster "+str(i)+"\nTime: %.3f" % min(times),verticalalignment='top',bbox=dict(facecolor=rank_to_colour[ranks[i]],alpha=0.5))
-		#plt.text(max(dms),max(sigmas),"Time: "+str(min(times)),bbox=dict(facecolor=rank_to_colour[ranks[i]],alpha=0.5))
                 plt.ylabel("SNR")
                 plt.xlabel("DM")
 		plt.savefig("cl"+str(i)+'_'+outfile+".png")
@@ -336,7 +351,6 @@ def plotranks(file,sps,ranks_arr,filename,yplotrange,outfile):
     rank_size={1:0.1,2:15,3:15,4:15,5:20,6:70}
     sizes=[]
     colours=[]
-#     print("KEY: \n 0 - Black \n 1 - Red \n 2 - Gray \n 3 - Cyan \n 4 - Blue \n 5 - Green \n 6 - Magenta")
     for q in range(0,len(sps)):
             colours.append(rank_to_colour[ranks_arr[q]])
 	    sizes.append(rank_size[ranks_arr[q]])
@@ -353,36 +367,32 @@ def plotranks(file,sps,ranks_arr,filename,yplotrange,outfile):
 
 #-------------------------------------------------------------------------------------------------------------------
 # Searches through any number of output files from AstroAccelerate and assigns ranks to each SP found
-def sps_search(inputfiles,dmrange,t_dist,dm_dist,chunks,plotclusters,flagrfi,rfidm,rfisize,rfiwidth,annotate,yplotrange,autochunk):
-	n=1
-#    print("KEY: \n 0 - Black \n 1 - Red (RFI) \n 2 - Gray \n 3 - Cyan \n 4 - Blue \n 5 - Green \n 6 - Magenta")
-#     print("CPU usage: "+str(psutil.cpu_percent())+"%")
+def sps_search(inputfiles,dmrange,t_dist,dm_dist,chunks,plotclusters,flagrfi,rfidm,rfisize,rfiwidth,annotate,yplotrange,autochunk,outfile,plot_chunks):
+	n = 1
+	t_column = 2
+	dm_column = 0
 	for file in inputfiles:
-		outfile=file
+		if outfile =="":		
+			outfile=file
 		print(n)
-#         print("-----------------------------------------------------------")
 
-		if os.stat(file).st_size !=0:
+		if os.stat(file).st_size >36:
 			print("Preparing file: "+file+"...")
-			singlepulse,t_column,dm_column,numcands = read_sps(file,dmrange)
-#             print(singlepulse)
-#             plot_sps(singlepulse,t_column,dm_column)
+			singlepulse,numcands = read_sps(file,dmrange)
 
 			if len(singlepulse)>1:
 				if autochunk==True:
-					#print(numcands)
 					chunks=int(math.ceil(numcands/20000.0))
-					#print(chunks)
 				print("Clustering in time...")
 				time_clusters,z = time_clust(singlepulse,t_column,"ward",t_dist,chunks)
 				print("Number of time clusters: "+str(max(time_clusters)))
-			        #     plot_dendro(z)
 
 				print("Clustering in DM...")
 				dm_clusters = dm_clust(singlepulse,time_clusters,dm_column,dm_dist)
      				if flagrfi==True:
 					dm_clusters = flag_rfi(singlepulse,dm_clusters,rfidm,rfisize,rfiwidth)
-				plot_clust2(singlepulse,dm_clusters,t_column,dm_column,annotate,yplotrange,outfile)
+				
+				plot_clust2(singlepulse,dm_clusters,t_column,dm_column,annotate,yplotrange,outfile,plot_chunks)
 				print("Total number of clusters: "+str(max(dm_clusters)))
 				if len(dm_clusters) !=0:
 					print("Ranking clusters...")
@@ -395,7 +405,6 @@ def sps_search(inputfiles,dmrange,t_dist,dm_dist,chunks,plotclusters,flagrfi,rfi
 						print("No candidates above rank 3.")
 	
 		n+=1 
-#         print("RAM usage: "+str(psutil.virtual_memory()[2])+"%")
 		print("----------------------------------------------------------------")
 	print("KEY: \n 0 - Black \n 1 - Red \n 2 - Gray \n 3 - Cyan \n 4 - Blue \n 5 - Green \n 6 - Magenta")
 
@@ -408,24 +417,25 @@ def main():
 
 	parser.add_argument('-f', dest='filelist', nargs = '+', type = str, help="Any number of candidate files",required=True)
 	parser.add_argument('--dmrange',dest='dmrange',type=float,nargs=2, help='Limits the DM range to search for pulses',default=[0,10000000])
-	parser.add_argument('--tdist', dest='t_dist', type = float, help="Sets the granularity of time clustering", default=0.1)
+	parser.add_argument('--tdist', dest='t_dist', type = float, help="Sets the granularity of time clustering", default=10)
 	parser.add_argument('--dmdist', dest='dm_dist', type = float, help="Sets the granularity of DM clustering", default=50)
 	parser.add_argument('--c',dest='chunks',type = int,help="Breaks the data up into a number of chunks before doing time clustering. Note: only do this with time-sequential data",default=1)
 	parser.add_argument('--plotclusters',action="store_true",dest='plotclusters',help="Makes plots of each cluster's SNR vs DM",default=False)
 	parser.add_argument('--norfi',action=
 "store_false",dest='flagrfi',help='Don\'t remove RFI based on low DM & small cluster size.',default=True)
 	parser.add_argument('--RFIdm',dest='rfidmthresh',type=float,help="Marks all candidates with DM lower than this as RFI",default=10)
-	parser.add_argument('--RFIsize',dest='rfisizethresh',type=int,help="Marks clusters with fewer candidates than this as RF",default=4)
-	parser.add_argument('--RFIwidth',dest='rfiwidththresh',type=float,help="Marks cluster wider than this (in ms) as RFI",default=100000000)
+	parser.add_argument('--RFIsize',dest='rfisizethresh',type=int,help="Marks clusters with fewer candidates than this as RF",default=5)
+	parser.add_argument('--RFIwidth',dest='rfiwidththresh',type=float,help="Marks cluster wider than this (in ms) as RFI",default=1000)
 	parser.add_argument('--annotate',dest='annotate',action='store_true',help="Adds cluster numbers to the cluster plot",default=False)
 	parser.add_argument('--yrange',dest='yplotrange',nargs=2,type=float,help="DM range for plots", default = [])
 	parser.add_argument('--autochunk',dest='autochunk',action='store_true',help='Automatically chunks the data to process 20,000 candidates at a time',default=False)
 	parser.add_argument('--o',dest='outfile',type=str,help='Name of output file. Default: input file + .png',default='')
+	parser.add_argument('--plotchunks',dest='plotchunks',type=int, help="Plot file in number of chunks given. For breaking up very long-duration plots for visibility's sake",default=1)
 
 
 	options= parser.parse_args()
 
-	sps_search(options.filelist,options.dmrange,options.t_dist,options.dm_dist,options.chunks,options.plotclusters,options.flagrfi,options.rfidmthresh,options.rfisizethresh,options.rfiwidththresh,options.annotate,options.yplotrange,options.autochunk)
+	sps_search(options.filelist,options.dmrange,options.t_dist,options.dm_dist,options.chunks,options.plotclusters,options.flagrfi,options.rfidmthresh,options.rfisizethresh,options.rfiwidththresh,options.annotate,options.yplotrange,options.autochunk,options.outfile,options.plotchunks)
 
 
 main()
