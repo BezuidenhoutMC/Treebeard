@@ -109,26 +109,37 @@ def dm_clust(sps,t_clust,dm,dist_thresh):   #(singlepulse array, time clusters, 
 # Cluster 0 is RFI & noise
 
 def flag_rfi(sps, all_clust,dm_thresh,clust_size_thresh,width_thresh):
-    for i in range(min(all_clust),max(all_clust)+1):        #SMALL CLUSTERS
+    for i in range(min(all_clust),max(all_clust)+1):        
 
 	dms=[]
 	widths=[]
+	snrs=[]
 	for x in np.nonzero(all_clust==i)[0]:  #For each SP of cluster i
             dms.append(sps[x][0])       # width of each SP in cluster i
 	    widths.append(sps[x][3])
+	    snrs.append(sps[x][1])
+	
+
+
+
         if len(np.nonzero(all_clust==i)[0])<clust_size_thresh:
             rfi_flag = np.nonzero(all_clust==i)[0]
             all_clust[rfi_flag] = 0
-        
         else:
 	    #LOW DM
             if max(dms) < dm_thresh:
                 rfi_flag = np.nonzero(all_clust==i)[0]
                 all_clust[rfi_flag] = 0
+	    #PEAKS AT 0 DM
+	    elif dms[np.where(snrs==max(snrs))[0][0]] < 0.5:
+		rfi_flag = np.nonzero(all_clust==i)[0]
+		all_clust[rfi_flag] = 0
+	    
 	    #WIDE
 	    elif max(widths) > width_thresh: 
 		rfi_flag = np.nonzero(all_clust==i)[0]
                 all_clust[rfi_flag] = 0
+
         
     return all_clust
 
@@ -367,13 +378,15 @@ def plotranks(file,sps,ranks_arr,filename,yplotrange,outfile):
 
 #-------------------------------------------------------------------------------------------------------------------
 # Searches through any number of output files from AstroAccelerate and assigns ranks to each SP found
-def sps_search(inputfiles,dmrange,t_dist,dm_dist,chunks,plotclusters,flagrfi,rfidm,rfisize,rfiwidth,annotate,yplotrange,autochunk,outfile,plot_chunks):
+def sps_search(inputfiles,dmrange,t_dist,dm_dist,chunks,plotclusters,flagrfi,rfidm,rfisize,rfiwidth,annotate,yplotrange,autochunk,o,plot_chunks):
 	n = 1
 	t_column = 2
 	dm_column = 0
 	for file in inputfiles:
-		if outfile =="":		
+		if o =="":		
 			outfile=file
+		else:
+			outfile=0
 		print(n)
 
 		if os.stat(file).st_size >36:
