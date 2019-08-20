@@ -44,7 +44,6 @@ def read_sps(file,dmrange):
 # Cluster singlepulse candidates in time
 
 def time_clust(sps,t,m,dist,chunks):
-    #print(len(sps))
     
     if chunks > 1:
 	for  c in range(1,chunks+1):
@@ -130,8 +129,8 @@ def flag_rfi(sps, all_clust,dm_thresh,clust_size_thresh,width_thresh):
             if max(dms) < dm_thresh:
                 rfi_flag = np.nonzero(all_clust==i)[0]
                 all_clust[rfi_flag] = 0
-	    #PEAKS AT 0 DM
-	    elif dms[np.where(snrs==max(snrs))[0][0]] < 0.5:
+	    #TRIANGULAR
+	    elif dms[np.where(snrs==max(snrs))[0][0]] == min(dms) or dms[np.where(snrs==max(snrs))[0][0]] == max(dms):
 		rfi_flag = np.nonzero(all_clust==i)[0]
 		all_clust[rfi_flag] = 0
 	    
@@ -148,8 +147,7 @@ def flag_rfi(sps, all_clust,dm_thresh,clust_size_thresh,width_thresh):
 
 
 def plot_clust2(sps,cl,t,dm,annotate,yplotrange,outfile,num_chunks):  #(singlepulses, clusters, time column, DM column,options...)
-    #print(len(sps))
-   # print(len(cl))
+
     plt.figure(figsize=(23, 16))
     ax = plt.gca()
 
@@ -194,26 +192,14 @@ def plot_clust2(sps,cl,t,dm,annotate,yplotrange,outfile,num_chunks):  #(singlepu
         	if len(q) !=0 and annotate:
             		ax.annotate(str(i),(sps_chunk[q][0,t],sps_chunk[q][0,dm]))
 
-        	#for i in range(min(cl_chunk),max(cl_chunk)+1):
-            	#    q = np.nonzero(cl_chunk==i)[0]
-	    	#    plt.scatter(sps_chunk[q][:,t],sps_chunk[q][:,dm],color="gray",marker='*',s=1)
 	    plt.savefig("Clusters_"+outfile+"_timechunk"+str(n)+".png")
-			#plt.close(n)
-	
-	#if i==0:
-	#    plt.scatter(sps[q][:,t],sps[q][:,dm],color="gray",marker='*',s=1)
-	#else:
-	#    points = plt.scatter(sps[q][:,t],sps[q][:,dm],s=15)
-	 
-
-
 
 #------------------------------------------------------------------------------
 #------------------------------------------------------------------------------
 # Rank clusters from 1 to 6, from bad to good.
 
 def rank_groups(sps,groups,plot_sps,outfile):
-    min_group = 2
+    min_group = 15
     sigma_thresh = 5
     
     sigmas_max=np.zeros(max(groups)+1)
@@ -223,6 +209,9 @@ def rank_groups(sps,groups,plot_sps,outfile):
     numsps=np.zeros(max(groups)+1)    
     ranks = np.zeros(max(groups)+1)
     ranks[:] = 1
+    fail_reasons = ["Noise/RFI"]*(max(groups)+1)
+
+  
 
     
     ranks_full_arr = np.zeros(len(sps))
@@ -240,7 +229,7 @@ def rank_groups(sps,groups,plot_sps,outfile):
         idx=[]
 	times=[]
         
-        numsps[i] = len(np.nonzero(groups==i)[0])
+        numsps[i] = len(np.nonzero(groups==i)[0])   # Number of SPs in cluster i
         
         for x in np.nonzero(groups==i)[0]:  #For each SP of cluster i
             idx.append(x)                  # Indices of sps in cluster i
@@ -271,12 +260,13 @@ def rank_groups(sps,groups,plot_sps,outfile):
 
         if numsps[i] < min_group and ranks[i] != 7:   #Rank group as 1 if less numerous than threshold
             ranks[i] = 1
+	    fail_reasons[i] = "Hits < 15"
 
         elif ranks[i] != 2 and ranks[i] != 7 :
             sigmas_sorted = [x for _,x in sorted(zip(dms,sigmas))]
             sigmas_arr = np.zeros(np.int(np.ceil(numsps[i]/5)*5))
-            sigmas_arr[-np.int(numsps[i]):] = sigmas            # Array of cluster SNRs sorted by DM from low to high
-            
+            #sigmas_arr[-np.int(numsps[i]):] = sigmas            # Array of cluster SNRs sorted by DM from low to high
+	    sigmas_arr[-np.int(numsps[i]):] = sigmas_sorted
             sigmas_arr.shape = (5,np.int(np.ceil(numsps[i]/5)))  # sigmas_arr reshaped to have 5 rows
             
 	#---------------------------------------------------------------
@@ -294,48 +284,58 @@ def rank_groups(sps,groups,plot_sps,outfile):
 
             if all(std < 0.1 for std in stdsigmas):
                 ranks[i]=1                   # Mark cluster i as RFI (rank 1) if sigmas pretty much constant
+		fail_reasons[i] = "St Devs all < 0.1"
             if maxsigmas[2] > maxsigmas[1]:
                 if maxsigmas[2] > maxsigmas[3]:
                     ranks[i] = 3
+		    fail_reasons[i]="mid peaked but high 1/5"
                     if (maxsigmas[3] > maxsigmas[4]) and (maxsigmas[1] > maxsigmas[0]): 
                         ranks[i] = 4
+			fail_reasons[i] = "mid peaked; maxsigma in 3 < sigmathresh"
                         if maxsigmas[2] > sigma_thresh:  
                             # We want the largest maxsigma to be at least 
                             # 1.15 times bigger than the smallest
                             ranks[i] = 5
+			    fail_reasons[i] = "mid peaked; avg3<avg1 or avg3<avg5 or maxsigma<1.15*minsigma"
                             if (avgsigmas[2] > avgsigmas[0]) and (avgsigmas[2] > avgsigmas[4]) and maxsigma>1.15*minsigma:
-                                    ranks[i] = 6 
+                                    ranks[i] = 6
+				    fail_reasons[i] = "Perfect!"  
                 else: #ie. maxsigmas[2] <= maxsigmas[3], allowing for asymmetry:
-#                     print("Entered path maxsigmas[2]<=maxsigmas[3]")
                     if maxsigmas[1] > maxsigmas[0]:
                         ranks[i] = 3
+			fail_reasons[i] = "5>4>3>2>1"
                         if maxsigmas[3] > maxsigmas[4]:
                             ranks[i] = 4
+			    fail_reasons[i] = "5<4>3>2>1; maxsigmas4 < sigmathresh"
                             if maxsigmas[3] > sigma_thresh:
                                 ranks[i] = 5
+				fail_reasons[i] = "5<4>3>2>1; avg4<avg1 or avg4<avg5 or maxsigma<1.15*minsigma"
                                 if (avgsigmas[3] > avgsigmas[0]) and                                     (avgsigmas[3] > avgsigmas[4]) and                                     maxsigma>1.15*minsigma:
                                     ranks[i] = 6 
-
+				    fail_reasons[i] = "Perfect!"  
             else: #ie. maxsigma2 >= maxsigma3, allowing for asymmetry:
-#                 print("Entered path maxsigma[2] <= maxsigma[1]")
                 if (maxsigmas[1] > maxsigmas[0]) and (maxsigmas[2] > maxsigmas[3]):
                     ranks[i] = 3
+		    fail_reasons[i] = "1<2>3>4<5"
                     if maxsigmas[3] > maxsigmas[4]:
 #                         print("Entered path maxsigmas[3]>maxsigmas[4]")
+			fail_reasons[i] = "1<2>3>4>5; maxsigma 2 < sigmathresh"
                         ranks[i] = 4
                         if maxsigmas[1] > sigma_thresh:
 #                             print("Entered path maxsigmas[1]>sigma_thresh")
                             ranks[i] = 5
+			    fail_reasons[i] = "1<2>3>4>5; avg2<avg1 or maxsigma<1.15*minsigma"
                             if (avgsigmas[1] >= avgsigmas[0]) and                                 (avgsigmas[1] > avgsigmas[4]) and                                 maxsigma>1.15*minsigma:
                                 ranks[i] = 6
+				fail_reasons[i] = "Perfect!"  
             if any(stdsigma < 0.1 for stdsigma in stdsigmas) and (sigmas_max[i] < 5.5): # if max sigma of the group is less than 5.5 and the sigma distribution is mostly flat, then it is not likely to be astrophysical.
                 ranks[i] = 1
+		fail_reasons[i] = "Sigma st dev <0.1 & sigmamax<5.5"
             if ranks[i] == 0:
                 pass
-
 	#--------------------------------------------------------------
-            
             if plot_sps==True: 
+		#print(i)
                 #----------------------------------------------------#
 		fig = plt.figure(figsize=(10, 8))              #PLOT SPs
                 ax = plt.gca()
@@ -344,14 +344,15 @@ def rank_groups(sps,groups,plot_sps,outfile):
 		plt.scatter(best_dms,best_sigmas,color='red')
 		cbar = plt.colorbar(sc)
 		cbar.set_label('Pulse Width')
-		plt.text(min(dms),max(sigmas),"Cluster "+str(i)+"\nTime: %.3f" % min(times),verticalalignment='top',bbox=dict(facecolor=rank_to_colour[ranks[i]],alpha=0.5))
+		plt.text(min(dms),max(sigmas),fail_reasons[i],verticalalignment='top',bbox=dict(facecolor=rank_to_colour[ranks[i]],alpha=0.5))
+		plt.text(min(dms),min(sigmas)+0.95*(max(sigmas)-min(sigmas)),"Cluster "+str(i)+"\nTime: %.3f"% min(times),verticalalignment='top',bbox=dict(facecolor=rank_to_colour[ranks[i]],alpha=0.5))
+
                 plt.ylabel("SNR")
                 plt.xlabel("DM")
 		plt.savefig("cl"+str(i)+'_'+outfile+".png")
                 #----------------------------------------------------# 
 
         ranks_full_arr[np.nonzero(groups==i)] = ranks[i]
-          
     return ranks_full_arr #Array of rankings (1-6) for each SPS
 
 
@@ -436,7 +437,7 @@ def main():
 	parser.add_argument('--plotclusters',action="store_true",dest='plotclusters',help="Makes plots of each cluster's SNR vs DM",default=False)
 	parser.add_argument('--norfi',action=
 "store_false",dest='flagrfi',help='Don\'t remove RFI based on low DM & small cluster size.',default=True)
-	parser.add_argument('--RFIdm',dest='rfidmthresh',type=float,help="Marks all candidates with DM lower than this as RFI",default=10)
+	parser.add_argument('--RFIdm',dest='rfidmthresh',type=float,help="Marks all candidates with DM lower than this as RFI",default=5)
 	parser.add_argument('--RFIsize',dest='rfisizethresh',type=int,help="Marks clusters with fewer candidates than this as RF",default=5)
 	parser.add_argument('--RFIwidth',dest='rfiwidththresh',type=float,help="Marks cluster wider than this (in ms) as RFI",default=1000)
 	parser.add_argument('--annotate',dest='annotate',action='store_true',help="Adds cluster numbers to the cluster plot",default=False)
